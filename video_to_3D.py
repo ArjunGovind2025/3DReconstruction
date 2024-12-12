@@ -6,16 +6,16 @@ import open3d as o3d
 from pytransform3d.rotations import matrix_from_quaternion
 from replicate import Client
 
-# Paths and Directories
-data_dir = "./video1873OM"  # Path to the directory containing input files
+
+data_dir = "./video1873OM"  # Path to the Omniscent folder 
 output_frames_dir = "frames"
 os.makedirs(output_frames_dir, exist_ok=True)
 
-# Collect Input Files
+# get neccesary files
 video_files = glob.glob(os.path.join(data_dir, "*.mp4"))
 abc_files = glob.glob(os.path.join(data_dir, "*.abc"))
 
-# Camera Parameters for pinhoel cam- this can be adjusted
+# Camera parameters for pinhole camera- this can be adjusted
 fx, fy = 1000, 1000
 cx, cy = 640, 360
 camera_matrix = np.array([[fx, 0, cx],
@@ -27,10 +27,12 @@ video_path = video_files[0]
 cap = cv2.VideoCapture(video_path)
 frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
 frames = []
+
 for i in range(frame_count):
     ret, frame = cap.read()
     if not ret:
         break
+
     frame_path = os.path.join(output_frames_dir, f"frame_{i}.png")
     cv2.imwrite(frame_path, frame)
     frames.append(frame_path)
@@ -39,10 +41,12 @@ cap.release()
 # generates camera positonn without rotation
 camera_poses = []
 for i in range(len(frames)):
+
     pos = np.array([0.0, 0.0, -1.0 * i])
     quat = np.array([1.0, 0.0, 0.0, 0.0])
     R = matrix_from_quaternion(quat)
     T = np.eye(4)
+
     T[:3, :3] = R
     T[:3, 3] = pos
     camera_poses.append(T)
@@ -64,7 +68,9 @@ for frame_path in frames:
 bf = cv2.BFMatcher()
 test = .75 # can be changed
 matches_between_frames = []
+
 for i in range(len(all_descriptors) - 1):
+
     matches = bf.knnMatch(all_descriptors[i], all_descriptors[i + 1], k=2)
     good = [m for m, n in matches if m.distance < test * n.distance]
     matches_between_frames.append(good)
@@ -80,6 +86,7 @@ all_3d_points = []
 for i, good_matches in enumerate(matches_between_frames):
     kp1 = all_keypoints[i]
     kp2 = all_keypoints[i + 1]
+
     pts1 = np.float32([kp1[m.queryIdx].pt for m in good_matches])
     pts2 = np.float32([kp2[m.trainIdx].pt for m in good_matches])
 
@@ -98,6 +105,7 @@ dense_points = []
 
 for frame_index, frame_path in enumerate(frames):
     image = open(frame_path, "rb")
+
     result = client.predict(image=image, api_name="/on_submit")
 
     depth = np.array(result["depth"])  # Assuming depth is part of the result
@@ -110,8 +118,11 @@ for frame_index, frame_path in enumerate(frames):
     frame_points = np.stack((X, Y, Z), axis=-1).reshape(-1, 3)
 
     T = camera_poses[frame_index]
+
     ones = np.ones((frame_points.shape[0], 1))
     frame_points_h = np.hstack([frame_points, ones])
+
+
     world_points_h = (T @ frame_points_h.T).T
     world_points = world_points_h[:, :3]
 
@@ -125,6 +136,8 @@ all_points = all_points[np.isfinite(all_points).all(axis=1)]
 
 pcd = o3d.geometry.PointCloud()
 pcd.points = o3d.utility.Vector3dVector(all_points)
+
+
 o3d.io.write_point_cloud("output_point_cloud.ply", pcd)
 
 # mesh generation via poisson reconstruciton
